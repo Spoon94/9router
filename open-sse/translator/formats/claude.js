@@ -614,11 +614,15 @@ export function prepareClaudeRequest(body, provider = null, apiKey = null, conne
           // anthropic-compatible: replace with default (safe fallback for lenient upstreams).
           // DeepSeek (official + opencode-go models): keep existing thinking as-is;
           // add an unsigned placeholder only if missing.
+          // Every branch: a block with no visible thinking text goes — the upstream
+          // Messages API rejects it outright (400 "each thinking block must contain
+          // non-whitespace thinking"), and a valid signature does not save it.
           const isClaudeNative = provider === "claude";
           const kept = [];
           for (const block of msg.content) {
             const isThinking = block.type === CLAUDE_BLOCK.THINKING || block.type === CLAUDE_BLOCK.REDACTED_THINKING;
             if (isThinking) {
+              if (!String(block.thinking ?? "").trim()) continue;
               if (isClaudeNative) {
                 if (isValidClaudeSignature(block.signature)) {
                   hasKeptThinking = true;
