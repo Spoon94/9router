@@ -591,14 +591,10 @@ export function prepareClaudeRequest(body, provider = null, apiKey = null, conne
     // DeepSeek models also arrive behind OpenCode Go's /messages transport.
     // They carry the same thinking pass-back constraint as the official
     // DeepSeek provider (verified live 2026-08-15, PR #3332 discussion), so
-    // they get the identical keep/placeholder handling below. OpenCode Go's
-    // Claude models sit on the same transport with the same constraint — and
-    // unlike Anthropic it rejects an unsigned or blank thinking block outright
-    // (400 "thinking.signature: Field required"), so they need it too.
+    // they get the identical keep/placeholder handling below.
     const deepSeekServed =
       provider === "deepseek" ||
       (provider === "opencode-go" && isDeepSeekModel(body?.model));
-    const ocgClaudeServed = provider === "opencode-go" && /^claude/i.test(String(body?.model ?? ""));
 
     // Pass 2 (reverse): add cache_control to last assistant + handle thinking for Anthropic
     let lastAssistantProcessed = false;
@@ -620,20 +616,18 @@ export function prepareClaudeRequest(body, provider = null, apiKey = null, conne
         }
 
         // Handle thinking blocks for Anthropic-compatible endpoints.
-        if (handlesThinkingBlocks(provider) || deepSeekServed || ocgClaudeServed) {
+        if (handlesThinkingBlocks(provider) || deepSeekServed) {
           let hasToolUse = false;
           let hasKeptThinking = false;
 
           // Claude native: preserve valid signatures, drop invalid blocks.
           // anthropic-compatible: replace with default (safe fallback for lenient upstreams).
-          // DeepSeek (official + opencode-go models) and OpenCode Go's Claude
-          // models: keep existing thinking as-is; add an unsigned placeholder
-          // only if missing.
+          // DeepSeek (official + opencode-go models): keep existing thinking as-is;
+          // add an unsigned placeholder only if missing.
           // Every branch: a block with no visible thinking text goes — the upstream
           // Messages API rejects it outright (400 "each thinking block must contain
           // non-whitespace thinking"), and a valid signature does not save it.
           const isClaudeNative = provider === "claude";
-          const keepThinkingAsIs = deepSeekServed || ocgClaudeServed;
           const kept = [];
           for (const block of msg.content) {
             const isThinking = block.type === CLAUDE_BLOCK.THINKING || block.type === CLAUDE_BLOCK.REDACTED_THINKING;
@@ -644,7 +638,7 @@ export function prepareClaudeRequest(body, provider = null, apiKey = null, conne
                   hasKeptThinking = true;
                   kept.push(block);
                 }
-              } else if (keepThinkingAsIs) {
+              } else if (deepSeekServed) {
                 hasKeptThinking = true;
                 kept.push(block);
               } else {
@@ -661,7 +655,7 @@ export function prepareClaudeRequest(body, provider = null, apiKey = null, conne
 
           // Add thinking block if thinking enabled + has tool_use but no thinking
           if (thinkingEnabled && !hasKeptThinking && hasToolUse) {
-            msg.content.unshift(buildThinkingPlaceholder(provider, keepThinkingAsIs));
+            msg.content.unshift(buildThinkingPlaceholder(provider, deepSeekServed));
           }
         }
       }
